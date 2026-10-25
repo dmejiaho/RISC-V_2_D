@@ -3,112 +3,161 @@
 Repositorio creado con el fin de arreglar algunos problemas que se tenían con
 el primer procesador **femto_UN** y también añadir algunas funciones nuevas.
 
-femto_UN es un SoC RISC-V (CPU FemtoRV32 *quark* + UART + flash SPI + RAM SPI)
-del curso de VLSI de la Universidad Nacional de Colombia, sede Manizales,
-fabricado en Tiny Tapeout. Este repositorio parte de esa versión y la mejora:
-lo que estaba bien se deja igual, lo que estaba mal se corrige.
+Por ahora este documento cubre los cambios en la **RAM SPI**: el controlador
+`MappedSPIRAM.v`, que conecta el procesador con la memoria FRAM **FM25V02** de
+la placa, y su conexión en `femto.v`.
 
-- `v1_original/` — el código original, sin tocar, como referencia.
-- `v2/` — la versión nueva.
-
-En cada cambio de abajo se muestra **el código original**, **el código nuevo**
-y **qué se ve en GTKWave** como resultado.
+- `v1_original/rtl/MappedSPIRAM.v` — el código original, sin tocar.
+- `v2/rtl/MappedSPIRAM.v` — el código nuevo.
 
 ---
 
 ## Resumen
 
-| # | Bloque | Problema en el original | Resultado en la v2 |
+| # | Problema en la RAM original | Qué pasaba | Estado en la v2 |
 |---|---|---|---|
-| 1 | Flash | Se perdía la primera instrucción de todo programa | Se ejecuta desde la dirección 0 |
-| 2 | RAM | Tramas SPI corridas un bit, sin WREN, solo palabras de 32 bits, bytes al revés | Accesos de 8, 16 y 32 bits correctos |
-| 3 | UART | Registros sin reset: en compuertas TXD queda en X | TXD transmite bien también en compuertas |
-| 4 | Interrupciones | CPU con interrupciones del profesor, sin verificar | Verificadas en simulación |
-| 5 | Otros | Código que Icarus 12 no compila, programa de prueba corrupto | Compila y corre en Fedora 44 |
+| 1 | **La lectura solo guardaba 31 bits** | Se perdía el bit 31 de cada palabra leída | Corregido: guarda los 32 bits |
+| 2 | El reloj SPI corría siempre | Según el momento, la trama llegaba corrida un bit y el chip recibía otro comando | Corregido: SCK solo durante la transferencia |
+| 3 | No mandaba WREN antes de escribir | El chip ignora las escrituras después de la primera | Corregido: WREN antes de cada escritura |
+| 4 | Solo escribía palabras de 32 bits | `sb` y `sh` dañaban los bytes vecinos | Corregido: escribe 1, 2 o 4 bytes |
+| 5 | Bytes al revés | `lb`/`lbu` leían el byte equivocado | Corregido: mismo orden que RISC-V |
 
-Prueba de la RAM (`test_ram_bytes`, 13 verificaciones de lectura y escritura):
+Resultado con el programa de prueba `test_ram_bytes` (13 verificaciones de
+escritura y lectura):
 
-| | Original | v2 |
+| | RAM original | RAM nueva |
 |---|---|---|
-| Simulación RTL | Falla en la primera prueba | **13/13 OK** |
-| Simulación con compuertas sky130 | — | **13/13 OK**, mismos tiempos que el RTL |
+| Terminal | `T1` y el programa se pierde | `T1 OK` … `T13 OK`, `FIN` |
+| Contenido final del chip (0x100–0x10B) | `44 33 22 11 FF FF FF FF FF FF FF FF` | `11 AA EF BE 78 56 34 12 F0 DE BC 9A` |
+
+Todo está verificado **en simulación** (Icarus Verilog con el modelo de la
+FM25V02). Falta probarlo en hardware.
 
 ---
 
-## Cómo correrlo
+## Cómo verlo
 
-Requisitos en Fedora: `sudo dnf install iverilog gtkwave`. Todo se corre
-desde `v2/sim`:
+Requisitos en Fedora: `sudo dnf install iverilog gtkwave`. Desde `v2/sim`:
 
-| Comando | Qué muestra | Tiempo |
-|---|---|---|
-| `make test_flash` | Cambio 1: primera instrucción, flash nueva y original | ~2 s |
-| `make test_ram_hex` | Cambio 2: prueba completa de la RAM nueva | <1 min |
-| `make test_ram_original` | Cambio 2: la misma prueba con la RAM original | <1 min |
-| `make sim` | Cambio 4: demo de interrupciones y UART | <1 min |
-| `make tt_um_femto` | Todo en compuertas sky130 (como en clase) | Ctrl+C y `finish` cuando quieras |
+| Comando | Qué hace |
+|---|---|
+| `make test_31bits` | Escribe `0x9ABCDEF0` y lo lee, con la RAM nueva y con la original (cambio 1) |
+| `make test_ram_hex` | Prueba completa de la RAM nueva (`test_ram_bytes`, ~80 ms simulados) |
+| `make test_ram_original` | La misma prueba con la RAM original |
+| `make clean` | Borra los VCD y registros generados |
 
-Cada comando abre GTKWave con una vista ya preparada. Los VCD se borran con
-`make clean`.
+Cada comando abre GTKWave con una vista de la RAM organizada en cuatro grupos:
+
+- **lo que pide el CPU:** `wr`, `rd`, dirección, `wmask`, `wdata`, `rbusy`, `wbusy`, `rdata`, `state`;
+- **bus SPI hacia el chip:** `CS_N`, `CLK` (SCK), `MOSI`, `MISO`;
+- **contenido del chip:** `mem[256]` a `mem[267]`, las direcciones 0x100 a 0x10B;
+- **UART.**
+
+Además, cada prueba deja un registro de accesos (`ram_log*.txt`) con cada
+lectura y escritura y su tiempo en µs, para ubicar el cursor en GTKWave.
+
+En las dos pruebas solo cambia `MappedSPIRAM.v`: el CPU, el programa y el
+modelo del chip son los mismos.
 
 ---
 
-## 1. Flash: la primera instrucción se perdía
+## 1. La lectura solo guardaba 31 bits
 
-**Archivo:** `MappedSPIFlash.v`
+Es el problema principal. La RAM recibe la palabra bit por bit por MISO (32
+bits), pero el original solo guardaba 31.
 
 ### Se cambió esto del código original
 
 ```verilog
-always @(negedge clk) begin
-    if (!reset) begin
-      state    <= START;
+RECEIVE: begin
+  if(clk_div) begin
+    if(rcv_bitcount <= 1) begin
+      state         <= START;             // sale SIN guardar MISO
+    end
+    else begin
+      rcv_bitcount <= rcv_bitcount - 6'd1;
+      rcv_data     <= {rcv_data[30:0],MISO};
+      state         <= RECEIVE;
+    end
+  end
+end
 ```
+
+`rcv_bitcount` empieza en 32. Se guarda un bit cuando el contador vale 32, 31,
+…, 2, o sea **31 veces**; cuando llega a 1, sale sin guardar.
 
 ### Por esto
 
 ```verilog
-always @(negedge clk) begin
-    if (!reset) begin
-      state    <= WAIT_STRB;
+RECEIVE: begin
+   if (clk_div_rise) begin                 // en el flanco de subida de SCK
+      rcv_data <= {rcv_data[30:0], MISO};  // guarda el bit SIEMPRE
+      if (rcv_bitcount == 1)
+         state <= DONE;
+      else
+         rcv_bitcount <= rcv_bitcount - 6'd1;
+   end
+end
 ```
 
-### Por qué
+Ahora el bit se guarda en cada paso, también en el último (contador en 32,
+31, …, 1): **32 veces**. Además, se muestrea en el flanco de subida de SCK
+(`clk_div_rise`), que es cuando el dato de MISO es válido en SPI modo 0. Es el
+mismo esquema que ya usaba `MappedSPIFlash.v`.
 
-Al soltar el reset, el CPU pide la primera instrucción con un pulso de
-`rstrb` de **un solo ciclo**. La flash original salía del reset hacia `START`
-y necesitaba un ciclo más para llegar a `WAIT_STRB`, que es donde mira
-`rstrb`: el pedido llegaba justo en ese ciclo y se perdía. El CPU no esperaba
-(`rbusy` seguía en 0) y tomaba como instrucción lo que hubiera en el bus: un
-0, que el CPU interpreta como `0x00000003` = `lb x0, 0(x0)`. Por eso los
-programas del curso repiten su primera instrucción (`lui t1, 0x400` dos
-veces). Ahora la flash sale del reset directamente a `WAIT_STRB`.
+### Qué bit se perdía
 
-### Resultado en GTKWave (`make test_flash`)
+Se midió en simulación comparando los 32 bits que el chip pone en MISO con los
+que guarda la RAM. Ejemplo de una lectura del original:
 
-El programa de prueba empieza con `lui sp, 0x10` (`0x00010137`):
+```
+chip envió (32 bits):  00000000000000000000000101111000
+RAM guardó (31 bits):   0000000000000000000000101111000
+```
 
-![Primera instrucción: original y nueva](docs/img/flash_primera_instruccion.png)
+La RAM original empieza a guardar un paso tarde: **pierde el primer bit que
+envía el chip, que es el bit 31** (el más significativo). En el bit 31 de
+`rdata` queda un bit sobrante de la lectura anterior. Cuando ese bit vale 0,
+como en el ejemplo, el valor leído parece correcto; cuando vale 1, no.
 
-| Señal | Original | Nueva |
+### Medición: escribir `0x9ABCDEF0` y leerlo (`make test_31bits`)
+
+El bit 31 de `0x9ABCDEF0` es 1, así que el error se ve:
+
+| | Bits guardados en la lectura | Valor leído |
 |---|---|---|
-| Trama de la dirección 0 | A los 0,4 µs, pero es la carga `lb x0, 0(x0)`: el dato va a `x0` y se pierde | A los 0,3 µs, y entrega la instrucción al CPU |
-| `instr` en PC = 0 | `0x00000003` (basura) | `0x00010137` (`lui sp, 0x10`) a los 8 µs |
-| `x2` (`sp`) | Nunca recibe valor: queda en **X** | `0x00010000` y luego `0x00010400` |
+| RAM original | 31 | `0x1ABCDEF0` ❌ (el `9` pasa a `1`: se perdió el bit 31) |
+| RAM nueva | 32 | `0x9ABCDEF0` ✅ |
 
-Con `sp` en X, la pila no funciona y el programa se cae en la primera llamada
-a subrutina.
+En la prueba completa (`test_ram_bytes`), **todas** las lecturas de la RAM
+original guardan 31 bits y todas las de la nueva guardan 32.
+
+### En la simulación (GTKWave)
+
+Con `make test_31bits` se abren dos ventanas, una por versión. La lectura
+está cerca de los **140–170 µs** (`CS_N` en bajo, después de la escritura).
+Para contar los bits, agrega desde el panel *SST*
+(`tt_um_femto_TB → uut → femto0 → mapped_spi_ram`) la señal `rcv_bitcount`:
+
+| Señal | RAM original | RAM nueva |
+|---|---|---|
+| `MISO`, al final de la trama de lectura | El chip envía `9A BC DE F0` | El chip envía `F0 DE BC 9A` (orden de bytes, ver el cambio 5) |
+| `rcv_bitcount` | Baja de 32 a 1, pero el último paso no guarda bit | Baja de 32 a 1 guardando un bit en cada paso |
+| `rdata`, cuando `rbusy` baja | `1ABCDEF0` | `9ABCDEF0` |
+
+Y en la terminal:
+
+```
+Se escribió 0x9ABCDEF0 y se leyó:
+  RAM nueva:         169.5  RD  00010100 -> 9abcdef0
+  RAM original:      166.2  RD  00010100 -> 1abcdef0
+```
 
 ---
 
-## 2. RAM SPI
+## 2. El reloj SPI corría siempre
 
-**Archivo:** `MappedSPIRAM.v` (reescrito) y su conexión en `femto.v`.
-Detalle completo en [`docs/RAM.md`](docs/RAM.md).
-
-### 2.1 El reloj SPI corría siempre y la trama llegaba corrida
-
-#### Se cambió esto del código original
+### Se cambió esto del código original
 
 ```verilog
 always @(negedge clk) begin
@@ -117,10 +166,10 @@ always @(negedge clk) begin
     end
     else begin
       if ( (div_counter == divisor/2) | ( div_counter == divisor ) ) begin
-        CLK  <= ~CLK;          // SCK alterna siempre, haya o no transferencia
+        CLK  <= ~CLK;                     // alterna siempre, haya o no transferencia
 ```
 
-#### Por esto
+### Por esto
 
 ```verilog
 wire sck_run = (state == SEND_WREN) | (state == SEND) | (state == RECEIVE);
@@ -129,85 +178,110 @@ always @(negedge clk) begin
    if (!reset || !sck_run) begin
       div_counter <= 0;  clk_div <= 0;  clk_div_rise <= 0;  CLK <= 0;
    end else begin
-      ...                       // SCK solo corre durante la transferencia
+      ...                                 // SCK solo corre durante la transferencia
 ```
 
-#### Por qué
+### Por qué
 
-Con SCK corriendo libre, cuando baja `CS_N` el reloj puede estar en
-cualquier fase. Según esa fase, el chip lee el primer bit o se lo salta, y en
-el segundo caso toda la trama le llega **corrida un bit**: `03` (READ) se
-convierte en `06` (WREN), y `02` (WRITE) en `04` (WRDI, deshabilitar
-escritura). En la prueba original, **573 de 1208 tramas** llegaron así. Esto
-explica por qué en hardware los programas con RAM "funcionaban cuando
-querían". Ahora SCK arranca desde cero con cada transferencia y la trama
-siempre llega alineada.
+Con SCK corriendo libre, cuando baja `CS_N` el reloj puede estar en cualquier
+punto de su ciclo. Según ese punto, el chip lee el primer bit o se lo salta.
+Si se lo salta, toda la trama le llega **corrida un bit**:
 
-#### Resultado en GTKWave
+| El controlador envía | El chip recibe |
+|---|---|
+| `03` (READ) | `06` (WREN): no devuelve nada, el CPU lee `00000000` |
+| `02` (WRITE) | `04` (WRDI, deshabilitar escritura): no guarda nada |
 
-![Escritura y lectura: original y nueva](docs/img/sw_comparacion.png)
+En la prueba completa de la RAM original llegaron así **573 de 1208 tramas**.
+Como depende del momento exacto de cada acceso, el resultado cambia de un
+programa a otro, lo que explica por qué en hardware los programas con RAM
+"funcionaban cuando querían". Ahora SCK arranca desde cero con cada trama, así
+que siempre llega alineada.
 
-- **Original:** SCK corre aunque `CS_N` esté en alto. La escritura llega bien
-  esta vez, pero la lectura de justo después llega como `06 00 02 00`: el chip
-  no devuelve nada y el CPU lee `00000000`.
-- **Nueva:** SCK quieto fuera de las tramas; la lectura sale `03 00 01 00` y
-  devuelve `44332211`.
+### En la simulación (GTKWave)
 
-### 2.2 Faltaba el WREN antes de escribir
+En el grupo *bus SPI*:
 
-#### Se cambió esto del código original
+- **Original** (`make test_ram_original`): `CLK` alterna todo el tiempo, también
+  con `CS_N` en alto.
+- **Nueva** (`make test_ram_hex`): `CLK` solo se mueve mientras `CS_N` está en
+  bajo. En la escritura de los ~86 µs, MOSI lleva `06`, luego `02 00 01 00` y los
+  datos.
+
+---
+
+## 3. Faltaba el WREN antes de escribir
+
+### Se cambió esto del código original
 
 ```verilog
 if (wr) begin
-  CS_N     <= 1'b0;
-  cmd_addr <= {8'h02, 8'h00, word_address[15:0], wdata[31:0]};   // WRITE directo
+  CS_N         <= 1'b0;
+  rbusy        <= 1'b0;
+  wbusy        <= 1'b1;
+  snd_bitcount <= 8'd64;
+  rcv_bitcount <= 6'd0;
+  cmd_addr     <= {8'h02, 8'h00, word_address[15:0], wdata[31:0]};   // WRITE directo
+  state        <= WAIT_SCLK;
+end
 ```
 
-#### Por esto
+### Por esto
 
 ```verilog
 if (wr) begin                       // escritura: primero WREN
-   CS_N        <= 1'b0;
-   shift_out   <= {CMD_WREN, 56'd0};                        // 0x06
-   write_frame <= {CMD_WRITE, 8'h00, wr_addr, wr_bytes};    // 0x02 + dirección + datos
-   state       <= SEND_WREN;        // luego WREN_GAP (CS_N en alto) y SEND
+   CS_N         <= 1'b0;
+   wbusy        <= 1'b1;
+   is_write     <= 1'b1;
+   shift_out    <= {CMD_WREN, 56'd0};                         // 0x06
+   snd_bitcount <= 6'd7;
+   write_frame  <= {CMD_WRITE, 8'h00, wr_addr, wr_bytes};     // 0x02 + dirección + datos
+   write_bits   <= 6'd31 + {wr_nbytes, 3'b000};  // 32 + 8n - 1
+   state        <= SEND_WREN;      // luego WREN_GAP (CS_N en alto) y SEND
+end
 ```
 
-#### Por qué
+### Por qué
 
-La FM25V02 borra su permiso de escritura (WEL) al terminar cada escritura.
-Sin un WREN (`0x06`) nuevo, ignora la siguiente. Ahora cada escritura son dos
-tramas: `06`, una pausa con `CS_N` en alto y luego `02` + dirección + datos.
+La FM25V02 borra su permiso de escritura (WEL) al terminar cada escritura. Sin
+un WREN (`0x06`) nuevo, ignora la siguiente. Ahora cada escritura son dos
+tramas: `06`, una pausa corta con `CS_N` en alto y luego `02` + dirección +
+datos.
 
-#### Resultado en GTKWave
+### En la simulación (GTKWave)
 
 En el grupo *bus SPI* de `make test_ram_hex`, cada escritura empieza con un
-**pulso corto de `CS_N`** (8 bits, el WREN), y después viene la trama larga.
-Las dos escrituras seguidas de ~33,9 ms quedan guardadas, cada una con su
-WREN.
+**pulso corto de `CS_N`** (8 bits de SCK, el WREN) seguido de la trama larga.
+Las dos escrituras seguidas de la prueba T11–T12 (~33,9 ms), cada una con su
+WREN, quedan guardadas: en *contenido del chip*, `mem[260..263]` pasan a
+`78 56 34 12` y `mem[264..267]` a `F0 DE BC 9A`.
 
-### 2.3 Solo escribía palabras de 32 bits
+---
 
-#### Se cambió esto del código original
+## 4. Solo escribía palabras de 32 bits
 
-El módulo no recibía la máscara de bytes del CPU (`mem_wmask`), y la dirección
-no se alineaba:
+### Se cambió esto del código original
+
+El controlador no recibía la máscara de bytes del CPU (`mem_wmask`), y usaba
+la dirección tal cual, sin alinear:
 
 ```verilog
 // femto.v
 .word_address(mem_address[15:0]),
 .wdata(mem_wdata[31:0]),
-// MappedSPIRAM.v: siempre 4 bytes, en la dirección tal cual
-cmd_addr <= {8'h02, 8'h00, word_address[15:0], wdata[31:0]};
+
+// MappedSPIRAM.v: siempre 4 bytes
+cmd_addr     <= {8'h02, 8'h00, word_address[15:0], wdata[31:0]};
 ```
 
-#### Por esto
+### Por esto
 
 ```verilog
 // femto.v
 .address(mem_address[15:0]),
 .wmask(mem_wmask),
 .wdata(mem_wdata[31:0]),
+
 // MappedSPIRAM.v: 1, 2 o 4 bytes según la máscara, en el byte exacto
 case (wmask)
    4'b0001: begin wr_offset = 2'd0; wr_nbytes = 3'd1; end   // sb en A
@@ -218,252 +292,102 @@ case (wmask)
    4'b1100: begin wr_offset = 2'd2; wr_nbytes = 3'd2; end   // sh en A+2
    default: begin wr_offset = 2'd0; wr_nbytes = 3'd4; end   // sw
 endcase
-wire [15:0] base_addr = {address[15:2], 2'b00};              // lecturas: alineada
-wire [15:0] wr_addr   = base_addr + {14'd0, wr_offset};      // escrituras: byte exacto
+
+wire [15:0] base_addr = {address[15:2], 2'b00};            // lecturas: dirección alineada
+wire [15:0] wr_addr   = base_addr + {14'd0, wr_offset};    // escrituras: byte exacto
 ```
 
-#### Por qué
+### Por qué
 
-Un `sb` (guardar un carácter, por ejemplo) escribía 4 bytes y dañaba los
-vecinos. La FM25V02 escribe byte a byte, así que basta con mandar la
-dirección exacta y solo los bytes que pide la máscara.
+Un `sb` (guardar un carácter, por ejemplo) escribía 4 bytes y dañaba los tres
+vecinos. Como la FM25V02 escribe byte a byte, basta con mandar la dirección
+exacta y solo los bytes que indica la máscara: la trama dura 32 + 8·n bits
+(comando, 3 bytes de dirección y n bytes de dato).
 
-#### Resultado en GTKWave
+### En la simulación (GTKWave)
 
-![sb con la RAM nueva](docs/img/sb_nueva.png)
+En `make test_ram_hex`, la prueba T6 hace `sb 0xAA` en `0x10101`:
 
-`sb 0xAA` en `0x10101` (a los 16 736,7 µs): WREN y luego una trama de solo
-**40 bits** (`02 00 01 01 AA`). En el grupo *contenido del chip*, `mem[257]`
-pasa de `22` a `AA` a los 16 757,8 µs y los vecinos no cambian. `ram_log.txt`
-lo confirma:
+| Grupo | Señal | Qué se ve (~16,74 ms) |
+|---|---|---|
+| lo que pide el CPU | `wr`, `wmask`, `address` | `wmask = 0010`, `address = 0101` |
+| bus SPI | `CS_N`, `MOSI` | WREN y luego una trama de solo **40 bits**: `02 00 01 01 AA` |
+| contenido del chip | `mem[257]` | Pasa de `22` a `AA`; `mem[256]`, `mem[258]` y `mem[259]` no cambian |
+
+En `ram_log.txt`:
 
 ```
-16736.7  WR  00010101 <- aa00aaaa  mask 0010   ← solo el byte 1
-16793.9  RD  00010100 -> 4433aa11              ← el resto de la palabra igual
+16736.7  WR  00010101 <- aa00aaaa  mask 0010   ← solo se escribe el byte 1
+16793.9  RD  00010100 -> 4433aa11              ← el resto de la palabra no cambió
 ```
 
-### 2.4 Los bytes quedaban al revés
+(En `aa00aaaa` el CPU repite el byte en todos los carriles; la máscara `0010`
+indica que solo vale el carril 1.)
 
-#### Se cambió esto del código original
+---
+
+## 5. Los bytes quedaban al revés
+
+### Se cambió esto del código original
 
 ```verilog
 assign rdata = rcv_data;
 ```
 
-#### Por esto
-
-```verilog
-assign rdata     = {rcv_data[7:0], rcv_data[15:8], rcv_data[23:16], rcv_data[31:24]};
-wire [31:0] wdata_seq = {wdata[7:0], wdata[15:8], wdata[23:16], wdata[31:24]};
-```
-
-#### Por qué
-
-RISC-V es *little-endian*: el byte de la dirección A es el menos
-significativo de la palabra. La flash ya lo hacía así; la RAM no, así que
-`lb`/`lbu` leían el byte equivocado.
-
-#### Resultado en GTKWave
-
-Después de `sw 0x44332211` en `0x10100`, el grupo *contenido del chip*
-muestra:
-
-| | `mem[256]` | `mem[257]` | `mem[258]` | `mem[259]` |
-|---|---|---|---|---|
-| Original | `44` | `33` | `22` | `11` |
-| Nueva | `11` | `22` | `33` | `44` |
-
-### 2.5 La lectura perdía el último bit
-
-#### Se cambió esto del código original
-
-```verilog
-RECEIVE: begin
-  if(clk_div) begin
-    if(rcv_bitcount <= 1) begin
-      state <= START;                      // el último bit no se guarda
-    end
-    else begin
-      rcv_bitcount <= rcv_bitcount - 6'd1;
-      rcv_data     <= {rcv_data[30:0],MISO};
-```
-
-#### Por esto
-
-```verilog
-RECEIVE: begin
-   if (clk_div_rise) begin                 // flanco de subida de SCK
-      rcv_data <= {rcv_data[30:0], MISO};  // se guarda siempre
-      if (rcv_bitcount == 1)
-         state <= DONE;
-      else
-         rcv_bitcount <= rcv_bitcount - 6'd1;
-```
-
-#### Por qué
-
-Es el mismo error que ya se había corregido en la flash: muestreaba con
-`clk_div` en vez del flanco de subida y salía de `RECEIVE` sin guardar el
-último bit. Ahora usa el mismo esquema que la flash, ya probado en hardware.
-
-#### Resultado en GTKWave
-
-En la lectura de 126–154 µs, `rdata` termina en `44332211`: los 32 bits
-completos de lo que se escribió.
-
-### Resultado de toda la RAM
-
-| | `make test_ram_original` | `make test_ram_hex` |
-|---|---|---|
-| Terminal | `T1` y el programa se pierde | `T1 OK` … `T13 OK`, `FIN` |
-| Chip, 0x100–0x10B al final | `44 33 22 11 FF FF FF FF FF FF FF FF` | `11 AA EF BE 78 56 34 12 F0 DE BC 9A` |
-
-![Contenido del chip durante la prueba con la RAM nueva](docs/img/ram_contenido_80ms.png)
-
----
-
-## 3. UART: registros sin reset
-
-**Archivo:** `uart.v`
-
-### Se cambió esto del código original
-
-```verilog
-if (reset) begin
-    tx_busy     <= 0;
-    uart_txd    <= 1;
-    tx_count16  <= 0;
-end else begin
-```
-
 ### Por esto
 
 ```verilog
-if (reset) begin
-    tx_busy     <= 0;
-    uart_txd    <= 1;
-    tx_count16  <= 0;
-    tx_bitcount <= 0;
-    txd_reg     <= 0;
-end else begin
-```
+assign rdata = {rcv_data[7:0], rcv_data[15:8], rcv_data[23:16], rcv_data[31:24]};
 
-(Y `rx_data <= 0` en el reset de la recepción.)
+wire [31:0] wdata_seq = {wdata[7:0], wdata[15:8], wdata[23:16], wdata[31:24]};
+```
 
 ### Por qué
 
-`tx_bitcount` y `txd_reg` arrancaban sin valor. En la simulación RTL y en el
-chip no se nota: en RTL un `if` con X toma la rama `else`, y en el chip los
-registros arrancan en 0 o 1. Pero en la **simulación con compuertas** el X se
-cuela por la lógica sintetizada (*pesimismo de X*) y TXD queda en X desde el
-primer carácter. La lógica no cambia: solo se fija el valor inicial.
+RISC-V es *little-endian*: el byte de la dirección A es el menos significativo
+de la palabra. La flash ya lo hacía así; la RAM no. Con `lw`/`sw` el error casi
+no se nota, porque se escribe y se lee al revés, pero `lb`/`lbu` leían el byte
+equivocado. Ahora la RAM guarda y entrega los bytes en el mismo orden que la
+flash.
 
-### Resultado en GTKWave (simulación con compuertas)
+### En la simulación (GTKWave)
 
-![UART en compuertas: sin reset y con reset](docs/img/uart_reset.png)
+Después de `sw 0x44332211` en `0x10100` (primera prueba), en *contenido del
+chip*:
 
-- **Antes:** `d_in_uart` tiene la `T` (`0x54`), pero `txd_reg` y `tx_bitcount`
-  están en X; TXD saca el bit de inicio a los 462,5 µs y a los 470,9 µs se
-  vuelve X (rojo).
-- **Después:** `txd_reg` carga `0x54` y se desplaza (`54`, `2A`, `15`, …), y
-  TXD saca inicio, `0 0 1 0 1 0 1 0` (la `T`, del bit menos significativo al
-  más) y parada.
+| | `mem[256]` | `mem[257]` | `mem[258]` | `mem[259]` |
+|---|---|---|---|---|
+| RAM original | `44` | `33` | `22` | `11` |
+| RAM nueva | `11` | `22` | `33` | `44` |
 
-En la terminal de `make tt_um_femto` aparece `[  3.233 ms] UART: T1 OK`,
-igual que en RTL.
-
----
-
-## 4. Interrupciones
-
-**Archivo:** `femtorv32_quark_un_irq.v` (CPU con interrupciones del profesor).
-
-No se cambió su lógica (solo el orden de las declaraciones, ver el punto 5).
-Lo nuevo es que **se verificó en simulación** con la demo del profesor
-(`uart_full_demo.S`). La demo configura `mtvec`, activa las interrupciones con
-`csrsi mstatus, 8`, y su rutina (`isr`) suma 1 a `s2` y regresa con `mret`.
-El testbench manda 20 pulsos por `interrupt_request` (pin `ui_in[3]`).
-
-### Resultado en GTKWave (`make sim`)
-
-![Interrupciones](docs/img/interrupciones.png)
-
-- Antes de los 70,5 µs `mstatus.MIE = 0`: los pulsos no se atienden, solo
-  quedan anotados como uno pendiente.
-- Al activar `MIE`, el CPU entra a la rutina (`mcause = 1`), `s2` sube y
-  `mret` regresa al programa. El programa principal sigue imprimiendo
-  `Hello World` normalmente.
-- Después de activar `MIE` llegan 15 pulsos más (además del que quedó
-  pendiente), pero `s2` llega a **10**: si llega un pulso mientras se atiende
-  otro, se guarda en una sola bandera pendiente, así que dos o tres pulsos
-  seguidos durante la rutina cuentan como uno. Así está diseñado este CPU.
+Con la RAM nueva, las pruebas T2–T5 (`lbu` de cada byte) leen `11`, `22`,
+`33` y `44`, como espera el programa.
 
 ---
 
-## 5. Cambios sin efecto en la lógica
+## Máquina de estados nueva
 
-| Archivo | Original | Nuevo | Motivo |
-|---|---|---|---|
-| `femtorv32_quark_un_irq.v`, `femto.v` | Señales usadas antes de declararse (`instr`, `PC`, `cs`, `dpram_dout`, …) | Declaraciones al inicio del módulo | Icarus Verilog 12 (Fedora 44) no lo compila: 73 errores |
-| `femto.v` | Sin pines de alimentación | `inout VPWR, VGND` solo con `USE_POWER_PINS` | Para que la netlist sintetizada se conecte al testbench como la del chip |
-| `uart_full_demo.S` | `csrsi mst	sw ra,0(sp) ...` / `atus, 8` (línea partida por un texto pegado) | `csrsi mstatus, 8` | El programa de interrupciones no ensamblaba |
-
----
-
-## Herramientas de verificación agregadas
-
-| Archivo | Para qué |
-|---|---|
-| `v2/firmware/asm/test_ram_bytes.S` | Prueba de la RAM con `sw`/`sh`/`sb` y `lw`/`lh`/`lhu`/`lb`/`lbu`; imprime `Tn OK` o `Tn FALLO valor` |
-| `v2/sim/tt_um_femto_TB.v` | `+tiempo_ms=N`, `+ram_log` (cada acceso a la RAM en `ram_log.txt`), decodificador del pin TXD para la simulación con compuertas |
-| `v2/sim/*.gtkw` | Vistas de GTKWave para la RAM, la flash y las compuertas |
-| `v2/synth/synth.ys` | Síntesis de la v2 a celdas sky130 con Yosys (`make synth`) |
-| `v2/sim/Makefile` | Todos los `make` de la tabla [Cómo correrlo](#cómo-correrlo) |
-
-La simulación con compuertas (`make tt_um_femto`, Ctrl+C y `finish`) se
-explica en [`docs/POSTSINTESIS.md`](docs/POSTSINTESIS.md).
+```
+            wr                       fin del WREN        pausa
+  IDLE ───────────► SEND_WREN ──────────────────► WREN_GAP ──────► SEND
+   │  ▲             (0x06)          CS_N = 1      (CS_N = 1)       (0x02 + dirección + datos)
+   │  │                                                              │ escritura
+   │  └──────────── DONE ◄───────────────────────────────────────────┘
+   │ rd             (CS_N = 1)  ▲
+   └──────────────► SEND ───────┴── RECEIVE (32 bits, flanco de subida)
+                    (0x03 + dirección)  lectura
+```
 
 ---
 
 ## Estado
 
-**Verificado en simulación:**
-
-- RTL: flash, RAM (13/13), UART e interrupciones.
-- Compuertas sky130 (post-síntesis): prueba de la RAM 13/13 y `FIN` a los
-  47,101 ms, con los mismos tiempos que el RTL.
-
-**Pendiente:**
-
-- Probar en hardware (FPGA Tang Primer 20K o un nuevo chip). El chip
-  fabricado tiene la versión original.
-- Flujo físico (LibreLane): netlist post-layout y análisis de tiempos.
-- Interrupciones en compuertas y con una rutina que guarde registros.
-
-Registro detallado de cada cambio: [`docs/CHANGES.md`](docs/CHANGES.md).
-
----
-
-## Estructura
-
-```
-v1_original/            Código original (no se edita)
-  rtl/                    femto_UN/src del repo del curso
-  sim/                    testbench, modelos de memoria, netlist del chip (tt_um_femto.v)
-  firmware/               programas en ensamblador
-v2/                     Versión nueva
-  rtl/                    RTL del SoC
-  sim/                    testbench, Makefile, vistas de GTKWave, modelos sky130
-    hex/                    programas ya ensamblados
-  synth/                  síntesis con Yosys y netlist de la v2
-  firmware/asm/           programas de prueba
-docs/
-  RAM.md                  cambios de la RAM en detalle
-  POSTSINTESIS.md         simulación con compuertas
-  CHANGES.md              registro de todos los cambios
-  img/                    imágenes de este README
-```
+- **Verificado en simulación RTL:** los cinco cambios, con `test_ram_bytes`
+  (13/13) y `test_ram_31bits`.
+- **Verificado en simulación con compuertas sky130** (netlist de Yosys):
+  `test_ram_bytes` 13/13, con los mismos tiempos que en RTL.
+- **Pendiente:** probar la RAM nueva en hardware (FPGA o un nuevo chip), porque
+  el chip fabricado tiene la versión original.
 
 `v1_original/` se tomó del repositorio del curso
-[`cicamargoba/VLSI`](https://github.com/cicamargoba/VLSI), commit `42705d7`
-(14 de octubre de 2026).
+[`cicamargoba/VLSI`](https://github.com/cicamargoba/VLSI), commit `42705d7`.

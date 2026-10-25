@@ -126,8 +126,8 @@ El bit 31 de `0x9ABCDEF0` es 1, así que el error se ve:
 
 | | Bits guardados en la lectura | Valor leído |
 |---|---|---|
-| RAM original | 31 | `0x1ABCDEF0` ❌ (el `9` pasa a `1`: se perdió el bit 31) |
-| RAM nueva | 32 | `0x9ABCDEF0` ✅ |
+| RAM original | 31 | `0x1ABCDEF0`  (el `9` pasa a `1`: se perdió el bit 31) |
+| RAM nueva | 32 | `0x9ABCDEF0` |
 
 En la prueba completa (`test_ram_bytes`), **todas** las lecturas de la RAM
 original guardan 31 bits y todas las de la nueva guardan 32.

@@ -1,0 +1,3 @@
+# tiempo_us  op  direccion   dato      (mask: bytes escritos)
+      86.1  WR  00010100 <- 9abcdef0  mask 1111
+     166.2  RD  00010100 -> 1abcdef0

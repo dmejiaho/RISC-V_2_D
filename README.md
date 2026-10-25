@@ -145,6 +145,26 @@ Para contar los bits, agrega desde el panel *SST*
 | `rcv_bitcount` | Baja de 32 a 1, pero el último paso no guarda bit | Baja de 32 a 1 guardando un bit en cada paso |
 | `rdata`, cuando `rbusy` baja | `1ABCDEF0` | `9ABCDEF0` |
 
+**RAM original:**
+
+![GTKWave con la RAM original: rdata = 1ABCDEF0](docs/img/ram_31bits_original.png)
+
+- `rdata = 1ABCDEF0`: se perdió el bit 31 (el `9`, `1001`, pasa a `1`, `0001`).
+- `CLK` corre todo el tiempo, también con `CS_N` en alto (cambio 2).
+- La escritura es un solo bajón de `CS_N`, sin WREN (cambio 3).
+- `mem[256..259] = 9A BC DE F0`: bytes al revés (cambio 5).
+
+**RAM nueva:**
+
+![GTKWave con la RAM nueva: rdata = 9ABCDEF0](docs/img/ram_31bits_nueva.png)
+
+- `rdata = 9ABCDEF0`: llegaron los 32 bits.
+- `CLK` solo tiene dos ráfagas, la escritura y la lectura, mientras `CS_N` está en bajo.
+- La escritura empieza con el pulso corto del WREN y luego la trama larga.
+- `mem[256..259] = F0 DE BC 9A`: el byte bajo en la dirección más baja.
+
+Mismo programa, mismo chip; solo cambia `MappedSPIRAM.v`.
+
 Y en la terminal:
 
 ```

@@ -85,6 +85,10 @@ tt_um_femto_TB.uut.femto0.CPU.interrupt_request_sticky
 tt_um_femto_TB.uut.femto0.CPU.interrupt_return
 @22
 tt_um_femto_TB.uut.femto0.CPU.mtvec[23:0]
+tt_um_femto_TB.uut.femto0.CPU.mepc[23:0]
+@28
+tt_um_femto_TB.uut.femto0.CPU.mstatus
+tt_um_femto_TB.uut.femto0.CPU.mcause
 @200
 -
 -MAPPED SPI RAM

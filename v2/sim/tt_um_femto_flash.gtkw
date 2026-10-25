@@ -1,0 +1,19 @@
+[*] Primera instrucción: flash (make test_flash)
+[timestart] 0
+[sst_width] 260
+[signals_width] 300
+@200
+-Flash SPI
+@28
+tt_um_femto_TB.spi_cs
+tt_um_femto_TB.spi_clk
+tt_um_femto_TB.spi_mosi
+tt_um_femto_TB.spi_miso
+@200
+-CPU
+@22
+tt_um_femto_TB.uut.femto0.CPU.PC[23:0]
+tt_um_femto_TB.uut.femto0.CPU.instr[31:2]
+tt_um_femto_TB.uut.femto0.CPU.\registerFile[2][31:0]
+@28
+tt_um_femto_TB.uut.femto0.mapped_spi_flash.rbusy

@@ -9,6 +9,7 @@
 #     make ver_ram    -> abre GTKWave con la vista de la RAM
 #     make test_ram_hex      -> como test_ram, con el hex ya ensamblado (sin toolchain)
 #     make test_ram_original -> la misma prueba con la RAM ORIGINAL, para comparar
+#     make test_flash        -> primera instrucción con la flash nueva y la original
 #
 #  Simulación con compuertas sky130 (como `make tt_um_femto` del curso):
 #     make synth                -> sintetiza la v2 con Yosys (../synth/tt_um_femto_v2.v)
@@ -98,6 +99,22 @@ test_ram_original: femto_ram_original.v
 	rmdir build_original
 	gtkwave tt_um_femto_TB_original.vcd tt_um_femto_ram_original.gtkw &
 
+# Primera instrucción: 1 ms con la flash NUEVA y con la ORIGINAL
+# (v1_original/rtl/MappedSPIFlash.v), mismo programa (test_ram_bytes, que
+# empieza con lui sp, 0x10). Abre los dos VCD con la vista de la flash.
+FLASH_V1 = ../../v1_original/rtl/MappedSPIFlash.v
+RTL_FLASH_V1 = $(filter-out $(RTL_DIR)/MappedSPIFlash.v,$(RTL)) $(FLASH_V1)
+
+test_flash:
+	iverilog -I . $(DEFS) -o sim_flash_nueva.vvp $(TB) $(RTL) $(MODELS)
+	iverilog -I . $(DEFS) -o sim_flash_original.vvp $(TB) $(RTL_FLASH_V1) $(MODELS)
+	mkdir -p build_flash
+	cd build_flash && vvp ../sim_flash_nueva.vvp +firmware=../hex/test_ram_bytes.hex +tiempo_ms=1 > /dev/null && mv tt_um_femto_TB.vcd ../tt_um_femto_TB_flash_nueva.vcd
+	cd build_flash && vvp ../sim_flash_original.vvp +firmware=../hex/test_ram_bytes.hex +tiempo_ms=1 > /dev/null && mv tt_um_femto_TB.vcd ../tt_um_femto_TB_flash_original.vcd
+	rmdir build_flash
+	gtkwave tt_um_femto_TB_flash_nueva.vcd tt_um_femto_flash.gtkw &
+	gtkwave tt_um_femto_TB_flash_original.vcd tt_um_femto_flash.gtkw &
+
 # =============================================================================
 #  Simulación con compuertas (gate-level), igual que `make tt_um_femto` del
 #  repo del curso: netlist + modelos de celdas sky130 + modelos de flash y RAM.
@@ -146,8 +163,8 @@ tt_um_femto_original:
 	setsid -f gtkwave tt_um_femto_TB.vcd tt_um_femto_gl.gtkw
 
 clean:
-	rm -f sim.vvp sim_original.vvp a.out *.vcd ram_log*.txt femto_ram_original.v
+	rm -f sim.vvp sim_original.vvp sim_flash_*.vvp a.out *.vcd ram_log*.txt femto_ram_original.v
 	rm -f tt_um_femto.vpp tt_um_femto_original.vpp
-	rm -rf build_original
+	rm -rf build_original build_flash
 
-.PHONY: all run sim firmware test_ram test_ram_hex test_ram_original ver_ram synth tt_um_femto tt_um_femto_original clean
+.PHONY: all run sim firmware test_ram test_ram_hex test_ram_original test_flash ver_ram synth tt_um_femto tt_um_femto_original clean

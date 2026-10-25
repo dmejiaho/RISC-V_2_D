@@ -1,0 +1,18 @@
+# Simulación
+*.vcd
+*.vvp
+a.out
+# Firmware compilado (v2; v1_original guarda los suyos como referencia)
+v2/firmware/**/*.o
+v2/firmware/**/*.elf
+v2/firmware/**/*.bin
+v2/firmware/**/*.map
+v2/firmware/**/*.lst
+v2/firmware/**/firmware_flash.hex
+v2/firmware/**/firmware_shifted.hex
+build/
+ram_log.txt
+femto_ram_original.v
+ram_log_original.txt
+*.vpp
+synth.log

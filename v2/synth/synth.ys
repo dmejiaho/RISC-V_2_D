@@ -1,0 +1,54 @@
+# =============================================================================
+#  Síntesis de femto_UN v2 a celdas sky130_fd_sc_hd (Yosys)
+#  Uso:   cd v2/sim && make synth        (o: cd v2/synth && yosys -s synth.ys)
+#
+#  Salida: tt_um_femto_v2.v  -> netlist de compuertas sky130, la que simula
+#          `make tt_um_femto` con los mismos modelos de celdas que usa el
+#          profesor para el chip fabricado.
+#          synth_stat.txt    -> cuántas celdas de cada tipo y área
+#
+#  Es una versión simple del synth.tcl de OpenLane que hay en el repo del curso
+#  (femtoRV/scripts/yosys/synth.tcl): mismos pasos de fondo (síntesis genérica,
+#  flip-flops con dfflibmap, lógica con ABC sobre la librería, celdas de valor
+#  fijo), sin las estrategias de optimización de tiempos de OpenLane.
+#  Librería: sky130_fd_sc_hd, esquina típica (tt, 25 °C, 1,8 V). Es la
+#  "trimmed.lib" que OpenLane le pasa a ABC (femtoRV/synthesis/trimmed.lib del
+#  repo del curso: la librería completa sin las celdas que no se deben usar).
+# =============================================================================
+
+# Librería de celdas (solo como cajas negras para la jerarquía)
+read_liberty -lib sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# RTL de la v2. USE_POWER_PINS agrega los puertos VPWR/VGND al top, como en la
+# netlist del chip (no se conectan a las celdas; ver docs/POSTSINTESIS.md).
+read_verilog -DUSE_POWER_PINS ../rtl/femto.v
+read_verilog ../rtl/femtorv32_quark_un_irq.v
+read_verilog ../rtl/perip_uart.v
+read_verilog ../rtl/uart.v
+read_verilog ../rtl/MappedSPIFlash.v
+read_verilog ../rtl/MappedSPIRAM.v
+
+hierarchy -check -top tt_um_femto
+
+# Síntesis genérica y aplanado (la netlist del chip también es plana)
+synth -top tt_um_femto -flatten
+
+# Flip-flops -> celdas de la librería (dfxtp, dfrtp, ...)
+dfflibmap -liberty sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# Lógica combinacional -> compuertas de la librería
+abc -liberty sky130_fd_sc_hd__tt_025C_1v80.lib
+
+# Constantes 0/1 -> celda conb_1 (tie-hi / tie-lo), como hace OpenLane
+setundef -zero
+hilomap -singleton -hicell sky130_fd_sc_hd__conb_1 HI -locell sky130_fd_sc_hd__conb_1 LO
+
+# Limpieza: buses en bits sueltos, buffers en las asignaciones directas
+splitnets
+opt_clean -purge
+insbuf -buf sky130_fd_sc_hd__buf_2 A X
+
+check
+tee -o synth_stat.txt stat -liberty sky130_fd_sc_hd__tt_025C_1v80.lib
+
+write_verilog -noattr -noexpr -nohex -nodec -defparam tt_um_femto_v2.v

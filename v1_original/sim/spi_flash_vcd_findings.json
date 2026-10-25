@@ -1,0 +1,33 @@
+{
+  signal: [
+      { name: "CS_N",                    wave: "10.............1" },
+      { name: "SCK (comprimido)",        wave: "0.p............1" },
+      { name: "Fase",                    wave: "x=....=.....=...", data: ["cmd 0x03 + dirección: 32 bits", "datos MISO: 32 bits", "bit 65 y fin"] },
+      { name: "snd_bitcount",            wave: "x=....=........x", data: ["32 → 0"] },
+      { name: "rcv_bitcount",            wave: "x.....=....=...x", data: ["32 → 0"] },
+      { name: "Ciclo extra",             wave: "x..........=...x", data: ["1 ciclo: último shift → CS_N↑"] },
+      { name: "Total flancos",           wave: "x..........=...x", data: ["65 con CS_N bajo"] },
+    {},
+      { name: "spiflash.v (negedge)",    wave: "x=....=.....=...", data: ["32 muestras MOSI", "32 muestras MOSI", "muestra 65: descarta al subir CS_N"] },
+      { name: "MISO (negedge + #1)",     wave: "x.....=.....=...", data: ["32 bits enviados", "dato estable antes de posedge"] },
+      { name: "Resultado sim",           wave: "x..........=...x", data: ["funciona: comando y dirección correctos"] },
+    {},
+      { name: "Flash física (posedge)",  wave: "x=....=.....=...", data: ["primer posedge: setup casi nulo", "64 bits", "bit 65: byte incompleto"] },
+      { name: "Resultado físico",        wave: "x..........=...x", data: ["Tx 1-2: lee 0x06 (WREN) en lugar de 0x03"] },
+    {},
+      { name: "Tx 1: CS_N↓=SCK↓",        wave: "10............" },
+      { name: "Tx 1: SCK",               wave: "0.p..........." },
+      { name: "Tx 1: comando leído",      wave: "x=............", data: ["0x06 (WREN) — setup ~0"] },
+    {},
+      { name: "Tx 2: CS_N↓=SCK↓",        wave: "10............" },
+      { name: "Tx 2: SCK",               wave: "0.p..........." },
+      { name: "Tx 2: comando leído",      wave: "x=............", data: ["0x06 (WREN) — setup ~0"] },
+    {},
+      { name: "Tx 3: SCK↓ luego CS_N↓",   wave: "0.10.........." },
+      { name: "Tx 3: SCK",               wave: "0.0.p........." },
+      { name: "Tx 3: comando leído",      wave: "x....=........", data: ["0x03 (READ) — setup 40 ps"] }
+  ],
+  head: { text: "SPI flash: 65 flancos, muestreo negedge vs posedge, CS_N/SCK skew" },
+  foot: { text: "spiflash.v (negedge) descarta bit 65. Flash física (posedge): Tx 1-2 CS_N↓=SCK↓ → lee 0x06; Tx 3 SCK estable → lee 0x03. CLK = !CS_N && !clk." },
+  config: { hscale: 3 }
+}

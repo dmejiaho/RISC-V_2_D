@@ -1,0 +1,88 @@
+{
+  "signal": [
+    {
+      "name": "Tx 1: CS_N\u2193 = SCK\u2193 \u2192 flash recibe 0x06",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "CS_N",
+      "wave": "10000000000000000000000000000000000000000000000000000000000000000000000."
+    },
+    {
+      "name": "SCK",
+      "wave": "10101010101010101010101010101010101010101010101010101010101010101010101."
+    },
+    {
+      "name": "MOSI",
+      "wave": "00000000000011110000000000000000000000000000000000000000000000000000000."
+    },
+    {
+      "name": "MISO",
+      "wave": "00000000000000000000000000000011110000000000000000000000000000000000001."
+    },
+    {
+      "name": "Posedge = 0x06 (WREN) \u2014 sin respuesta",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {},
+    {
+      "name": "Tx 2: CS_N\u2193 = SCK\u2193 \u2192 flash recibe 0x06",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "CS_N",
+      "wave": "10000000000000000000000000000000000000000000000000000000000000000000000."
+    },
+    {
+      "name": "SCK",
+      "wave": "10101010101010101010101010101010101010101010101010101010101010101010101."
+    },
+    {
+      "name": "MOSI",
+      "wave": "00000000000011110000000000000000000000000000000000000000001100000000000."
+    },
+    {
+      "name": "MISO",
+      "wave": "00000000000000000000000000000011110000000000000000000000000000000000000."
+    },
+    {
+      "name": "Posedge = 0x06 (WREN) \u2014 sin respuesta",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {},
+    {
+      "name": "Tx 3: SCK\u2193 antes de CS_N\u2193 \u2192 flash recibe 0x03",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "CS_N",
+      "wave": "100000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "SCK",
+      "wave": "001010101010101010101010101010101010101010101010101010101010101010101010"
+    },
+    {
+      "name": "MOSI",
+      "wave": "000000000000001111000000000000000000000000000000000000000011000000000000"
+    },
+    {
+      "name": "MISO",
+      "wave": "000000000000000000000000000000001111000000000000000000000000000000000000"
+    },
+    {
+      "name": "Posedge = 0x03 (READ) \u2014 flash responde",
+      "wave": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {}
+  ],
+  "head": {
+    "text": "SPI flash: tres primeras lecturas del VCD"
+  },
+  "foot": {
+    "text": "MOSI: comando 0x03 + direcci\u00f3n 0x000000 (MOSI=0 despu\u00e9s del comando). Tx1-2: CS_N\u2193=SCK\u2193 \u2192 shift \u2192 posedge lee 0x06. Tx3: SCK ya en 0 \u2192 sin shift \u2192 posedge lee 0x03."
+  },
+  "config": {
+    "hscale": 1
+  }
+}

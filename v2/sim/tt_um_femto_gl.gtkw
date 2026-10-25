@@ -1,0 +1,50 @@
+[*] Simulación con compuertas (make tt_um_femto / make tt_um_femto_original)
+[dumpfile] "tt_um_femto_TB.vcd"
+[timestart] 0
+[sst_width] 260
+[signals_width] 300
+@200
+-Control
+@28
+tt_um_femto_TB.CLK
+tt_um_femto_TB.RESET
+tt_um_femto_TB.interrupt_request
+@200
+-UART
+@28
+tt_um_femto_TB.TXD
+tt_um_femto_TB.RXD
+@200
+-Flash SPI (programa)
+@28
+tt_um_femto_TB.spi_cs
+tt_um_femto_TB.spi_clk
+tt_um_femto_TB.spi_mosi
+tt_um_femto_TB.spi_miso
+@200
+-RAM SPI (datos)
+@28
+tt_um_femto_TB.spi_cs_n_ram
+tt_um_femto_TB.spi_clk_ram
+tt_um_femto_TB.spi_mosi_ram
+tt_um_femto_TB.spi_miso_ram
+@200
+-RAM: contenido del chip (direcciones 0x100 a 0x10B)
+@22
+tt_um_femto_TB.flashram0.\mem[256][7:0]
+tt_um_femto_TB.flashram0.\mem[257][7:0]
+tt_um_femto_TB.flashram0.\mem[258][7:0]
+tt_um_femto_TB.flashram0.\mem[259][7:0]
+tt_um_femto_TB.flashram0.\mem[260][7:0]
+tt_um_femto_TB.flashram0.\mem[261][7:0]
+tt_um_femto_TB.flashram0.\mem[262][7:0]
+tt_um_femto_TB.flashram0.\mem[263][7:0]
+tt_um_femto_TB.flashram0.\mem[264][7:0]
+tt_um_femto_TB.flashram0.\mem[265][7:0]
+tt_um_femto_TB.flashram0.\mem[266][7:0]
+tt_um_femto_TB.flashram0.\mem[267][7:0]
+@200
+-Pines del chip
+@22
+tt_um_femto_TB.uut.uo_out[7:0]
+tt_um_femto_TB.uut.ui_in[7:0]

@@ -1,0 +1,51 @@
+[*] Vista de la RAM SPI - RAM ORIGINAL (make test_ram_original)
+[dumpfile] "tt_um_femto_TB_original.vcd"
+[timestart] 0
+[sst_width] 260
+[signals_width] 330
+@200
+-CPU
+@22
+tt_um_femto_TB.uut.femto0.CPU.PC[23:0]
+tt_um_femto_TB.uut.femto0.CPU.instr[31:2]
+@200
+-RAM: lo que pide el CPU
+@28
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.wr
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.rd
+@22
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.word_address[15:0]
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.wdata[31:0]
+@28
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.wbusy
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.rbusy
+@22
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.rdata[31:0]
+@24
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.state[2:0]
+@200
+-RAM: bus SPI hacia el chip
+@28
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.CS_N
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.CLK
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.MOSI
+tt_um_femto_TB.uut.femto0.mapped_spi_ram.MISO
+@200
+-RAM: contenido del chip (direcciones 0x100 a 0x10B)
+@22
+tt_um_femto_TB.flashram0.\mem[256][7:0]
+tt_um_femto_TB.flashram0.\mem[257][7:0]
+tt_um_femto_TB.flashram0.\mem[258][7:0]
+tt_um_femto_TB.flashram0.\mem[259][7:0]
+tt_um_femto_TB.flashram0.\mem[260][7:0]
+tt_um_femto_TB.flashram0.\mem[261][7:0]
+tt_um_femto_TB.flashram0.\mem[262][7:0]
+tt_um_femto_TB.flashram0.\mem[263][7:0]
+tt_um_femto_TB.flashram0.\mem[264][7:0]
+tt_um_femto_TB.flashram0.\mem[265][7:0]
+tt_um_femto_TB.flashram0.\mem[266][7:0]
+tt_um_femto_TB.flashram0.\mem[267][7:0]
+@200
+-UART
+@820
+tt_um_femto_TB.uut.femto0.per_uart.uart0.tx_data[7:0]
